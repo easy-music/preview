@@ -10,7 +10,7 @@ mkdir -p "$OUT_DIR"
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
 
-# collect files (supports .yaml and .yml). nullglob prevents literal pattern when no files.
+# support .yaml and .yml
 shopt -s nullglob
 files=("$SPEC_DIR"/*.yaml "$SPEC_DIR"/*.yml)
 shopt -u nullglob
@@ -22,19 +22,18 @@ fi
 
 for f in "${files[@]}"; do
   echo "Processing spec: $f"
-  # basename without extension (.yaml or .yml)
   base="$(basename "$f")"
-  base="${base%.*}"   # strips last extension
-  # expected name format: <service>.v<major>[...], e.g. tracks-service.v1
-  svc="${base%%.v*}"
-  # if basename didn't contain .v, fall back to full name as service and v1 as version
-  if [[ "$base" == "$svc" ]]; then
-    ver="v1"
+  base_noext="${base%.*}"
+  # service and version extraction: expects name like service.v1 or service.v1.2
+  if [[ "$base_noext" =~ \.v ]]; then
+    svc="${base_noext%%.v*}"
+    ver="v${base_noext##*.v}"
   else
-    ver="v${base##*.v}"
+    svc="$base_noext"
+    ver="v1"
   fi
 
-  markdown="$TMP_DIR/${base}.md"
+  markdown="$TMP_DIR/${base_noext}.md"
   outdir="$OUT_DIR/$svc"
   mkdir -p "$outdir"
   outpath="$outdir/$ver.md"
@@ -44,11 +43,11 @@ for f in "${files[@]}"; do
 
   echo "  -> wrapping with template -> $outpath"
   python3 - "$f" "$markdown" "$TEMPLATE" "$outpath" <<'PY'
-import sys, os, datetime
+import sys, os, datetime, subprocess
 try:
     import jinja2
-except Exception as e:
-    sys.stderr.write("Missing Python dependency jinja2: pip install jinja2\n")
+except Exception:
+    print("Missing dependency jinja2. Please pip install jinja2", file=sys.stderr)
     raise
 
 spec_path = sys.argv[1]
@@ -56,14 +55,31 @@ md_path = sys.argv[2]
 template_path = sys.argv[3]
 out_path = sys.argv[4]
 
-# derive service/version from spec filename if possible
 base = os.path.basename(spec_path)
 base_noext = os.path.splitext(base)[0]
-service = base_noext.split('.v',1)[0]
 if '.v' in base_noext:
+    service = base_noext.split('.v',1)[0]
     version = 'v' + base_noext.split('.v',1)[1]
 else:
+    service = base_noext
     version = 'v1'
+
+# derive created_at deterministically from git last commit touching the spec
+def last_commit_time(path):
+    try:
+        out = subprocess.check_output(['git','log','-1','--format=%cI','--', path], stderr=subprocess.DEVNULL)
+        s = out.decode().strip()
+        if s:
+            return s
+    except Exception:
+        pass
+    try:
+        ts = os.path.getmtime(path)
+        return datetime.datetime.utcfromtimestamp(ts).isoformat() + 'Z'
+    except Exception:
+        return datetime.datetime.utcnow().isoformat() + 'Z'
+
+created_at_val = last_commit_time(spec_path)
 
 with open(md_path, 'r', encoding='utf-8') as fh:
     body = fh.read()
@@ -77,13 +93,12 @@ fm = {
     'version': version,
     'status': 'draft',
     'created_by': 'ci',
-    'created_at': datetime.datetime.utcnow().isoformat() + 'Z',
+    'created_at': created_at_val,
     'changelog': '- auto-generated from OpenAPI'
 }
 
 out = tpl.render(frontmatter=fm, content=body)
 
-# ensure output dir exists
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, 'w', encoding='utf-8') as fh:
     fh.write(out)
