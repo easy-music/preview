@@ -1,11 +1,10 @@
 name: Gen contract docs
 on:
   pull_request:
-    paths:
-      - 'specs/**'
-      - 'scripts/**'
-      - 'templates/**'
+    branches:
+      - main
 
+      
 jobs:
   gen-docs:
     runs-on: ubuntu-latest
