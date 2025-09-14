@@ -1,44 +1,92 @@
 name: Gen contract docs
+
 on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
 
-      
+permissions:
+  contents: write
+
 jobs:
   gen-docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code (use head ref for PRs)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+
       - name: Install widdershins
         run: npm install -g widdershins
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Install protoc
-        run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install jinja2
+
+      - name: Setup Go (for protoc-gen-doc)
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Install protoc and protoc-gen-doc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@v1.5.0
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
       - name: Run generators
         run: |
-          chmod +x scripts/gen_openapi_md.sh
-          chmod +x scripts/gen_proto_md.sh
+          chmod +x scripts/gen_openapi_md.sh || true
+          chmod +x scripts/gen_proto_md.sh || true
           ./scripts/gen_openapi_md.sh
           ./scripts/gen_proto_md.sh || true
+
       - name: Show generated files
         run: ls -R docs || true
-      - name: Commit generated docs (to PR branch)
+
+      - name: Commit & push generated docs (only if changed)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.email "ci@easymusic"
           git config user.name "easymusic-ci"
+
+          # stage generated docs
           git add docs || true
-          git commit -m "Auto-generate API docs from specs" || echo "no changes"
-          git push || echo "push failed"
+
+          # if no changes, exit quietly
+          if git diff --staged --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+
+          # commit and push to the same branch (works for PR branch because we checked out head_ref)
+          git commit -m "Auto-generate API docs from specs [ci skip]" || true
+
+          # determine target branch (head of PR or current ref)
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            TARGET_BRANCH="$GITHUB_HEAD_REF"
+          else
+            TARGET_BRANCH="${GITHUB_REF##refs/heads/}"
+          fi
+          echo "Pushing generated docs to branch: $TARGET_BRANCH"
+
+          git push origin HEAD:"$TARGET_BRANCH"

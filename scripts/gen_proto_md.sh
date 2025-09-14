@@ -22,15 +22,13 @@ fi
 for f in "${files[@]}"; do
   echo "Processing proto: $f"
   base="$(basename "$f" .proto)"
-  # derive service name (convention: <service>_service.proto or <service>.proto)
   svc="$base"
-  svc="${svc%_service}"   # remove trailing _service if present
+  svc="${svc%_service}"
   ver="v1"
   outdir="$OUT_DIR/$svc"
   mkdir -p "$outdir"
   outpath="$outdir/$ver.md"
 
-  # generate markdown into TMP_DIR using protoc-gen-doc
   echo "  -> protoc generating markdown into $TMP_DIR"
   protoc --doc_out="$TMP_DIR" --doc_opt=markdown,"${base}.md" -I"$SPEC_DIR" "$f"
 
@@ -42,11 +40,11 @@ for f in "${files[@]}"; do
 
   echo "  -> wrapping with template -> $outpath"
   python3 - "$f" "$tmp_md" "$TEMPLATE" "$outpath" <<'PY'
-import sys, os, datetime
+import sys, os, datetime, subprocess
 try:
     import jinja2
-except Exception as e:
-    sys.stderr.write("Missing Python dependency jinja2: pip install jinja2\n")
+except Exception:
+    print("Missing dependency jinja2. Please pip install jinja2", file=sys.stderr)
     raise
 
 spec_path = sys.argv[1]
@@ -60,6 +58,23 @@ if service.endswith('_service'):
     service = service[:-8]
 version = 'v1'
 
+# created_at from git last commit touching the proto
+def last_commit_time(path):
+    try:
+        out = subprocess.check_output(['git','log','-1','--format=%cI','--', path], stderr=subprocess.DEVNULL)
+        s = out.decode().strip()
+        if s:
+            return s
+    except Exception:
+        pass
+    try:
+        ts = os.path.getmtime(path)
+        return datetime.datetime.utcfromtimestamp(ts).isoformat() + 'Z'
+    except Exception:
+        return datetime.datetime.utcnow().isoformat() + 'Z'
+
+created_at_val = last_commit_time(spec_path)
+
 with open(md_path, 'r', encoding='utf-8') as fh:
     body = fh.read()
 
@@ -72,7 +87,7 @@ fm = {
     'version': version,
     'status': 'draft',
     'created_by': 'ci',
-    'created_at': datetime.datetime.utcnow().isoformat() + 'Z',
+    'created_at': created_at_val,
     'changelog': '- auto-generated from proto'
 }
 
