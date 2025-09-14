@@ -1,0 +1,20 @@
+---
+{% raw %}
+{% endraw %}
+---
+---
+title: "{{ frontmatter.title }}"
+service: "{{ frontmatter.service }}"
+version: "{{ frontmatter.version }}"
+status: "{{ frontmatter.status }}"
+created_by: "{{ frontmatter.created_by }}"
+created_at: "{{ frontmatter.created_at }}"
+changelog: |
+{{ frontmatter.changelog }}
+---
+
+
+![status](https://img.shields.io/badge/status-{{ frontmatter.status }}-yellow)
+
+
+{{ content }}

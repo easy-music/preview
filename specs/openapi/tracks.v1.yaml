@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: Tracks Service
+  version: "1.0.0"
+paths:
+  /v1/tracks/{track_id}/stream:
+    get:
+      summary: Get streaming URL for a track
+      parameters:
+        - name: track_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: quality
+          in: query
+          schema:
+            type: string
+            enum: [auto, low, medium, high]
+      responses:
+        '200':
+          description: streaming URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  track_id:
+                    type: string
+                  type:
+                    type: string
+                  url:
+                    type: string
+                    format: uri
+                  expires_at:
+                    type: string
+                    format: date-time
